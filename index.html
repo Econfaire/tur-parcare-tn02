@@ -247,7 +247,7 @@ const TUR = {
       eticheta: { H: 172.5, pitch: 14.5, text: 'Urmați acest indicator' } },
     { start: 40, titlu: 'Treceți de barieră',
       text: 'La ieșirea de sub clădire opriți la bariera de pe banda din dreapta și sunați la interfon ca să vi se deschidă.',
-      eticheta: { H: 185, pitch: -5, text: 'Barieră' } },
+      eticheta: [{ H: -134, pitch: -12, text: 'Interfon' }, { H: 185, pitch: -5, text: 'Barieră' }] },
     { start: 36, titlu: 'Virați la stânga',
       text: 'Imediat după barieră virați la stânga și mergeți înainte pe alee, circa 50 m. Drumul coboară ușor spre parcare.',
       eticheta: null },
@@ -329,6 +329,7 @@ const HARTA = { url: 'img/harta.jpg', w: 1320, h: 1080, px: x => 140 + 10 * x, p
   /* --- pași --- */
   const idxById = new Map(S.map((s, i) => [s.id, i]));
   const P = TUR.pasi.map(p => ({ ...p, idx: idxById.get(p.start) }));
+  const labelsOf = p => !p || !p.eticheta ? [] : [].concat(p.eticheta);   // eticheta poate fi una sau o listă
   const stepOf = [];
   for (let i = 0, k = 0; i < N; i++) { while (k + 1 < P.length && i >= P[k + 1].idx) k++; stepOf.push(k); }
 
@@ -367,8 +368,8 @@ const HARTA = { url: 'img/harta.jpg', w: 1320, h: 1080, px: x => 140 + 10 * x, p
     if (i > 0) hs.push({ type: 'info', cssClass: 'hs-go hs-back', pitch: groundPitch(s, S[i - 1]), yaw: yawFor(s, heading(s, S[i - 1])),
       createTooltipFunc: makeArrow, createTooltipArgs: { next: false, tip: 'Înapoi' }, clickHandlerFunc: () => userGo(i - 1) });
     const p = P.find(p => p.idx === i);
-    if (p && p.eticheta) hs.push({ type: 'info', cssClass: 'hs-label', pitch: p.eticheta.pitch, yaw: yawFor(s, p.eticheta.H),
-      createTooltipFunc: makeLabel, createTooltipArgs: p.eticheta.text });
+    labelsOf(p).forEach(e => hs.push({ type: 'info', cssClass: 'hs-label', pitch: e.pitch, yaw: yawFor(s, e.H),
+      createTooltipFunc: makeLabel, createTooltipArgs: e.text }));
     scenes[sceneKey(i)] = { type: 'equirectangular', panorama: 'panos/' + pad(s.id) + '.jpg',
       pitch: -2, yaw: yawFor(s, travelH(i)), hfov: HFOV, hotSpots: hs };
   });
@@ -427,7 +428,8 @@ const HARTA = { url: 'img/harta.jpg', w: 1320, h: 1080, px: x => 140 + 10 * x, p
     await sleep(FADE);
     // la destinație, întoarce vederea spre locurile de parcare (în turul automat o face dwell())
     const fin = P.find(p => p.idx === cur);
-    if (cur === N - 1 && fin && fin.eticheta && !playing) await look(fin.eticheta.pitch - 4, yawFor(S[cur], fin.eticheta.H), HFOV * 0.85, 1200);
+    const finL = labelsOf(fin)[0];
+    if (cur === N - 1 && finL && !playing) await look(finL.pitch - 4, yawFor(S[cur], finL.H), HFOV * 0.85, 1200);
     busy = false;
     return true;
   }
@@ -450,10 +452,17 @@ const HARTA = { url: 'img/harta.jpg', w: 1320, h: 1080, px: x => 140 + 10 * x, p
   function pause() { playing = false; setPlayIcon(); }
   async function dwell(i) {
     const p = P.find(p => p.idx === i);
-    if (p && p.eticheta && !reduce) {
+    const L = labelsOf(p);
+    if (L.length && !reduce) {
       await sleep(T(400)); if (!playing) return;
       const s = S[i]; const keep = { yaw: viewer.getYaw(), pitch: viewer.getPitch() };
-      await look(p.eticheta.pitch - 4, yawFor(s, p.eticheta.H), HFOV * 0.8, 1100); if (!playing) return;
+      // privește spre etichete; dacă sunt mai multe, le încadrează pe toate
+      const rel = L.map(e => wrap(yawFor(s, e.H) - yawFor(s, L[0].H)));
+      const lo = Math.min(...rel), hi = Math.max(...rel);
+      const yaw = wrap(yawFor(s, L[0].H) + (lo + hi) / 2);
+      const pitch = L.reduce((t, e) => t + e.pitch, 0) / L.length - 4;
+      const hfov = Math.min(HFOV, Math.max(HFOV * 0.8, hi - lo + 24));
+      await look(pitch, yaw, hfov, 1100); if (!playing) return;
       await sleep(T(1700)); if (!playing) return;
       if (i < N - 1) await look(keep.pitch, keep.yaw, HFOV, 900);
     } else {
