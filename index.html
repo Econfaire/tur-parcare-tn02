@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Parcare vizitatori · TN02</title>
+<meta name="description" content="Tur virtual 360°: drumul de la intrarea din stradă până la parcarea vizitatorilor.">
+<meta name="theme-color" content="#0e1116">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css">
+<style>
+  :root {
+    --accent: #c4176c;          /* magenta, ca indicatoarele „VISITOR PARKING” */
+    --accent-soft: rgba(196, 23, 108, .18);
+    --panel: rgba(14, 17, 22, .74);
+    --panel-solid: #12151b;
+    --line: rgba(255, 255, 255, .12);
+    --text: #f6f7f9;
+    --muted: rgba(246, 247, 249, .68);
+    --radius: 16px;
+    --gutter: 16px;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b0d11; color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; overflow: hidden; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  #pano { position: fixed; inset: 0; }
+  .pnlm-load-box { display: none !important; }      /* folosim propriul indicator */
+  .pnlm-container { background: #0b0d11; }
+
+  .glass { background: var(--panel); -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  /* ---------- Pasul curent ---------- */
+  #step { position: fixed; top: var(--gutter); left: var(--gutter); width: min(380px, calc(100vw - 2 * var(--gutter))); padding: 16px 18px 18px; z-index: 5; transition: opacity .35s, transform .35s; }
+  #step.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+  .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .eyebrow .p-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; letter-spacing: 0; }
+  #step h2 { margin: 8px 0 6px; font-size: 20px; line-height: 1.25; font-weight: 650; }
+  #step p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--muted); }
+  .dots { display: flex; gap: 6px; margin-top: 14px; }
+  .dots button { flex: 1; height: 4px; padding: 0; border: 0; border-radius: 4px; background: rgba(255,255,255,.18); cursor: pointer; }
+  .dots button.done { background: rgba(255,255,255,.55); }
+  .dots button.on { background: var(--accent); }
+
+  /* ---------- Bara de jos ---------- */
+  #bar { position: fixed; left: 50%; bottom: calc(var(--gutter) + env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 8px; z-index: 5; width: min(640px, calc(100vw - 2 * var(--gutter))); }
+  .ibtn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; background: transparent; cursor: pointer; color: var(--text); }
+  .ibtn:hover { background: rgba(255,255,255,.08); }
+  .ibtn:disabled { opacity: .35; cursor: default; background: transparent; }
+  .ibtn svg { width: 22px; height: 22px; }
+  .ibtn.play { background: var(--accent); width: 52px; height: 44px; }
+  .ibtn.play:hover { background: #d81b7a; }
+  .ibtn.on { background: rgba(255,255,255,.12); }
+  #track { position: relative; flex: 1; height: 44px; cursor: pointer; margin: 0 6px; }
+  #track .rail, #track .fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; }
+  #track .rail { right: 0; background: rgba(255,255,255,.18); }
+  #track .fill { background: var(--accent); transition: width .5s ease; }
+  #track .tick { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #0e1116; border: 2px solid rgba(255,255,255,.55); }
+  #track .tick.done { border-color: var(--accent); background: var(--accent); }
+  #count { flex: none; min-width: 52px; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .spinner { display: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: spin .8s linear infinite; }
+  body.loading .spinner { display: block; }
+  body.loading #count { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- Minihartă ---------- */
+  #map { position: fixed; right: var(--gutter); top: var(--gutter); width: 240px; height: 240px; padding: 0; overflow: hidden; z-index: 4; transition: width .3s, height .3s, opacity .3s; }
+  #map.big { width: min(460px, calc(100vw - 2 * var(--gutter))); height: min(460px, calc(100vh - 140px)); }
+  #map.off { opacity: 0; pointer-events: none; }
+  #map svg { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #map .cap { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none; }
+  #map .grow { position: absolute; right: 6px; top: 6px; width: 32px; height: 32px; border-radius: 10px; background: rgba(0,0,0,.45); }
+  #map .grow svg { width: 18px; height: 18px; }
+
+  /* ---------- Săgeți și etichete în panoramă ---------- */
+  .hs-go { width: 66px; height: 66px; cursor: pointer; }
+  .hs-go .disc { position: absolute; inset: 0; border-radius: 50%; background: rgba(255,255,255,.94); box-shadow: 0 6px 18px rgba(0,0,0,.35); display: grid; place-items: center; transition: transform .2s; }
+  .hs-go:hover .disc { transform: scale(1.08); }
+  .hs-go svg { width: 34px; height: 34px; color: var(--accent); }
+  .hs-go.hs-next .ring { position: absolute; inset: -10px; border-radius: 50%; border: 3px solid rgba(255,255,255,.85); animation: pulse 1.8s ease-out infinite; }
+  .hs-go.hs-back { width: 44px; height: 44px; }
+  .hs-go.hs-back .disc { background: rgba(20,22,28,.55); border: 2px solid rgba(255,255,255,.7); box-shadow: none; }
+  .hs-go.hs-back svg { width: 22px; height: 22px; color: #fff; }
+  .hs-go .tip { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,.6); opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .hs-go:hover .tip { opacity: 1; }
+  @keyframes pulse { 0% { transform: scale(.85); opacity: .9; } 100% { transform: scale(1.35); opacity: 0; } }
+
+  .hs-label { width: 16px; height: 16px; pointer-events: none; }
+  .hs-label .pin { position: absolute; inset: 0; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 6px var(--accent-soft); }
+  .hs-label .txt { position: absolute; left: 50%; bottom: calc(100% + 12px); transform: translateX(-50%); white-space: nowrap; padding: 7px 12px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 14px; letter-spacing: .02em; box-shadow: var(--shadow); }
+  .hs-label .txt::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--accent); }
+
+  /* ---------- Ecran de start / sosire ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: var(--gutter); transition: opacity .45s; }
+  .overlay.hidden { opacity: 0; visibility: hidden; transition: opacity .45s, visibility 0s .45s; }
+  .overlay.hidden, .overlay.hidden * { pointer-events: none !important; }
+  #intro { background: radial-gradient(120% 90% at 50% 40%, rgba(11,13,17,.35), rgba(11,13,17,.92)), url("panos/mic/00073.jpg") center / cover; }
+  #intro::before { content: ""; position: absolute; inset: 0; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .card { position: relative; width: min(560px, 100%); max-height: calc(100vh - 2 * var(--gutter)); overflow: auto; padding: 28px; background: rgba(14,17,22,.86); }
+  .card h1 { margin: 10px 0 8px; font-size: clamp(26px, 5vw, 34px); line-height: 1.15; font-weight: 700; }
+  .card .lead { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.5; }
+  .brand { display: inline-flex; margin-bottom: 20px; padding: 10px 14px; border-radius: 12px; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.3); }
+  .brand img { display: block; height: 60px; width: auto; }
+  #intro h1 { margin-bottom: 24px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 20px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.06); cursor: pointer; font-weight: 600; font-size: 15px; }
+  .btn:hover { background: rgba(255,255,255,.12); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  .btn.primary:hover { background: #d81b7a; }
+  .btn svg { width: 18px; height: 18px; }
+  .fine { margin: 16px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+  #arrived { place-items: end center; padding-bottom: calc(96px + env(safe-area-inset-bottom)); pointer-events: none; }
+  #arrived .card { pointer-events: auto; width: min(440px, 100%); padding: 22px 24px; text-align: center; }
+  #arrived h1 { font-size: 24px; margin-top: 0; }
+  #arrived .actions { justify-content: center; margin-top: 16px; }
+
+
+  #err { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20; padding: 18px 22px; max-width: 420px; display: none; }
+
+  @media (max-width: 640px) {
+    :root { --gutter: 12px; }
+    #step { padding: 12px 14px 14px; }
+    #step h2 { font-size: 17px; margin: 6px 0 4px; }
+    #step p { font-size: 14px; }
+    .dots { margin-top: 10px; }
+    #bar { flex-wrap: wrap; justify-content: space-between; row-gap: 0; padding: 4px 8px 8px; }
+    #track { order: -1; flex: 0 0 100%; height: 26px; margin: 0; }
+    #map { top: auto; bottom: calc(108px + env(safe-area-inset-bottom)); width: 168px; height: 168px; }
+    #arrived { padding-bottom: calc(118px + env(safe-area-inset-bottom)); }
+    #map.big { width: calc(100vw - 24px); height: min(60vh, calc(100vw - 24px)); }
+    #map.off { opacity: 0; }
+    #count { display: none; }
+    .ibtn { width: 40px; }
+    .card { padding: 22px 20px; }
+    .hs-go { width: 58px; height: 58px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hs-go.hs-next .ring { animation: none; }
+    * { transition-duration: .01s !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="pano" aria-label="Panoramă 360° a traseului"></div>
+
+<!-- Pasul curent -->
+<section id="step" class="glass hidden" aria-live="polite">
+  <div class="eyebrow"><span class="p-badge" id="stepNo">1</span><span id="stepOf">Pasul 1 din 7</span></div>
+  <h2 id="stepTitle"></h2>
+  <p id="stepText"></p>
+  <div class="dots" id="dots"></div>
+</section>
+
+<!-- Minihartă -->
+<div id="map" class="glass off" aria-label="Harta traseului">
+  <svg id="mapSvg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+  <button class="ibtn grow" id="mapGrow" aria-label="Mărește harta">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+  </button>
+  <div class="cap">Vedere de sus · scanare 3D</div>
+</div>
+
+<!-- Bara de control -->
+<nav id="bar" class="glass" aria-label="Control tur">
+  <button class="ibtn" id="bRestart" aria-label="De la început" title="De la început">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+  </button>
+  <button class="ibtn" id="bPrev" aria-label="Înapoi" title="Înapoi">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <button class="ibtn play" id="bPlay" aria-label="Pornește" title="Pornește / pauză (Spațiu)">
+    <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+    <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+  </button>
+  <button class="ibtn" id="bNext" aria-label="Înainte" title="Înainte">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+  </button>
+  <div id="track" role="slider" aria-label="Poziția pe traseu" aria-valuemin="1" tabindex="0"><div class="rail"></div><div class="fill"></div></div>
+  <span id="count"></span><span class="spinner" aria-hidden="true"></span>
+  <button class="ibtn" id="bMap" aria-label="Harta" title="Harta">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>
+  </button>
+  <button class="ibtn" id="bFull" aria-label="Ecran complet" title="Ecran complet">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+  </button>
+</nav>
+
+<!-- Ecran de start -->
+<div id="intro" class="overlay">
+  <div class="card glass">
+    <div class="brand"><img src="img/logo-leviatan.png" alt="Leviatan Group of Creators" width="720" height="288"></div>
+    <div class="eyebrow" id="introLoc"></div>
+    <h1 id="introTitle"></h1>
+    <div class="actions">
+      <button class="btn primary" id="bStart">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+        Pornește turul
+      </button>
+      <button class="btn" id="bExplore">Explorez singur</button>
+    </div>
+    <p class="fine" id="introFine"></p>
+  </div>
+</div>
+
+<!-- Sosire -->
+<div id="arrived" class="overlay hidden">
+  <div class="card glass">
+    <h1 id="arrTitle"></h1>
+    <p class="lead" id="arrText"></p>
+    <div class="actions">
+      <button class="btn primary" id="bAgain">Reia turul</button>
+      <button class="btn" id="bClose">Mă uit în jur</button>
+    </div>
+  </div>
+</div>
+
+<div id="err" class="glass" role="alert"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script>
+/* =====================================================================
+   CONFIGURARE — textele de mai jos pot fi modificate liber.
+   H = direcția (grade) în sistemul de coordonate al scanării;
+   pitch = înălțimea etichetei (grade, pozitiv = în sus).
+   ===================================================================== */
+const TUR = {
+  loc: 'TN02 · Parcare vizitatori',
+  titlu: 'Cum ajungeți la parcare',
+  dataScanare: '9 iulie 2025',
+  sosire: { titlu: 'Ați ajuns!', text: 'Locurile pentru vizitatori sunt pe dreapta, la nivelul S0. Vă așteptăm.' },
+  pasi: [
+    { start: 73, titlu: 'Pe stradă, pe banda din dreapta',
+      text: 'Veniți pe banda de lângă bordură, cu clădirea în dreapta. Intrarea este pe dreapta, la circa 25 m, imediat după spațiul verde.',
+      eticheta: null },
+    { start: 76, titlu: 'Punctul ACCES: virați la dreapta',
+      text: 'Virați la dreapta spre clădire, peste trecerea de pietoni. Săgeata roz de pe asfalt arată intrarea pe sub copertină.',
+      eticheta: { H: 205, pitch: -2, text: 'Intrare' } },
+    { start: 58, titlu: 'Intrați pe sub clădire',
+      text: 'Intrați pe sub clădire pe banda din dreapta, cea cu săgeata albă înainte. Rampa cu barieră din stânga nu face parte din traseu.',
+      eticheta: { H: 163, pitch: -6, text: 'Banda din dreapta' } },
+    { start: 54, titlu: 'Urmați indicatorul „Visitor Parking”',
+      text: 'Mergeți înainte pe sub clădire, pe lângă rampă. Indicatoarele roz „VISITOR PARKING” vă arată drumul.',
+      eticheta: { H: 172.5, pitch: 14.5, text: 'Urmați acest indicator' } },
+    { start: 40, titlu: 'Treceți de barieră',
+      text: 'La ieșirea de sub clădire treceți prin bariera de pe banda din dreapta.',
+      eticheta: { H: 185, pitch: -5, text: 'Barieră' } },
+    { start: 36, titlu: 'Virați la stânga',
+      text: 'Imediat după barieră virați la stânga și mergeți înainte pe alee, circa 50 m. Drumul coboară ușor spre parcare.',
+      eticheta: null },
+    { start: 16, titlu: 'Intrați în parcare',
+      text: 'Intrați pe partea dreaptă a porții, marcată „ACCES PARCARE” (în stânga este ieșirea, „EXIT”).',
+      eticheta: { H: -123, pitch: 16.5, text: 'Intrarea' } },
+    { start: 13, titlu: 'Urmați „TN01 · TN02 · TN03”',
+      text: 'În interior, virați la dreapta, după săgeata „TN01 · TN02 · TN03” de pe perete, și continuați pe culoarul parcării.',
+      eticheta: { H: -83, pitch: 4, text: 'TN01 · TN02 · TN03' } },
+    { start: 0, titlu: 'Parcarea vizitatorilor',
+      text: 'Ați ajuns. Locurile pentru vizitatori sunt pe dreapta, la nivelul S0.',
+      eticheta: { H: 195, pitch: -1, text: 'Parcare vizitatori' } },
+  ],
+  // Porțiuni drepte (de la panorama „de” până la „pana”): aici vederea rămâne pe axa drumului.
+  // Scanerul a mers în zigzag, iar fără asta fiecare panoramă s-ar deschide puțin spre stânga sau spre dreapta.
+  drept: [{ de: 36, pana: 0 }],
+};
+
+/* Pozițiile panoramelor (din pano-poses.csv, NavVis), în ordinea traseului. */
+const SCENE = [
+  { id: 73, x: 108.35, y: 90.88, z: 1.96, psi: -52.3 },
+  { id: 74, x: 105.96, y: 86.77, z: 1.95, psi: -39.5 },
+  { id: 75, x: 104.00, y: 81.31, z: 1.97, psi: -54.3 },
+  { id: 76, x: 101.50, y: 75.90, z: 1.99, psi: -132.7 },
+  { id: 77, x: 98.37, y: 71.16, z: 2.00, psi: 156.3 },
+  { id: 78, x: 93.53, y: 72.13, z: 2.36, psi: 114.5 },
+  { id: 58, x: 86.21, y: 75.36, z: 2.71, psi: 18.7 },
+  { id: 54, x: 78.05, y: 76.71, z: 2.76, psi: 27.1 },
+  { id: 52, x: 73.89, y: 79.18, z: 2.71, psi: -134.4 },
+  { id: 50, x: 68.37, y: 81.69, z: 2.70, psi: -22.7 },
+  { id: 48, x: 63.55, y: 83.90, z: 2.70, psi: 22.9 },
+  { id: 46, x: 59.89, y: 85.09, z: 2.70, psi: -43.4 },
+  { id: 44, x: 52.20, y: 88.38, z: 2.70, psi: -64.7 },
+  { id: 41, x: 45.92, y: 89.85, z: 2.82, psi: 60.6 },
+  { id: 40, x: 42.72, y: 87.04, z: 2.69, psi: -11.2 },
+  { id: 38, x: 39.23, y: 86.90, z: 2.69, psi: -80.1 },
+  { id: 36, x: 29.89, y: 86.13, z: 2.71, psi: -48.3 },
+  { id: 33, x: 28.17, y: 82.35, z: 2.70, psi: 80.7 },
+  { id: 31, x: 26.29, y: 76.16, z: 2.70, psi: -7.0 },
+  { id: 29, x: 24.55, y: 69.13, z: 2.74, psi: 179.3 },
+  { id: 22, x: 21.87, y: 63.55, z: 2.06, psi: -26.3 },
+  { id: 21, x: 19.33, y: 58.84, z: 1.42, psi: 69.4 },
+  { id: 18, x: 16.89, y: 47.72, z: 1.34, psi: 52.4 },
+  { id: 16, x: 13.93, y: 40.84, z: 1.30, psi: 77.5 },
+  { id: 13, x: 8.32, y: 32.39, z: 0.96, psi: -178.7 },
+  { id: 11, x: 5.60, y: 27.76, z: 0.98, psi: 74.7 },
+  { id: 9, x: 3.62, y: 22.55, z: 0.97, psi: 21.3 },
+  { id: 6, x: 2.05, y: 14.13, z: 0.96, psi: 26.6 },
+  { id: 2, x: 0.74, y: 6.39, z: 0.96, psi: 33.2 },
+  { id: 0, x: -1.43, y: 2.02, z: 0.99, psi: 139.9 },
+];
+
+/* Harta de sus (img/harta.jpg): 10 px pe metru. */
+const HARTA = { url: 'img/harta.jpg', w: 1320, h: 1080, px: x => 140 + 10 * x, py: y => 1000 - 10 * y };
+
+/* ===================================================================== */
+(() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const portrait = innerHeight > innerWidth * 1.15;          // telefon ținut vertical
+  const SPEED = matchMedia('(pointer: fine)').matches ? 1.25 : 1;  // PC (cu mouse): trecerea între panorame și pauzele merg de 1,25 ori mai repede; rotirile și zoom-ul au viteza normală
+  const T = ms => Math.round(ms / SPEED);
+  const CAM_H = 1.75, HFOV = portrait ? 72 : 100, ZOOM_HFOV = Math.round(HFOV * 0.64), FADE = reduce ? 250 : T(800);
+  const S = SCENE, N = S.length;
+  const $ = id => document.getElementById(id);
+  const deg = r => r * 180 / Math.PI;
+  const wrap = a => ((a % 360) + 540) % 360 - 180;
+  const heading = (a, b) => deg(Math.atan2(b.y - a.y, b.x - a.x));
+  const yawFor = (s, H) => wrap(s.psi - H);
+  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  const groundPitch = (a, b) => Math.max(-40, Math.min(-9, deg(Math.atan2((b.z - a.z) - CAM_H, dist(a, b)))));
+  // direcția de privire la sosirea într-o panoramă; pe porțiunile drepte, axa drumului
+  const travelH = i => axis[i] != null ? axis[i] : (i < N - 1 ? heading(S[i], S[i + 1]) : heading(S[i - 1], S[i]));
+  // direcția de mers de la panorama i la vecina j (înapoi = invers față de axă)
+  const stepH = (i, j) => axis[i] != null && axis[j] != null ? (j > i ? axis[i] : wrap(axis[i] + 180)) : heading(S[i], S[j]);
+  const pad = n => String(n).padStart(5, '0');
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const sceneKey = i => 's' + S[i].id;
+
+  /* --- pași --- */
+  const idxById = new Map(S.map((s, i) => [s.id, i]));
+  const P = TUR.pasi.map(p => ({ ...p, idx: idxById.get(p.start) }));
+  const stepOf = [];
+  for (let i = 0, k = 0; i < N; i++) { while (k + 1 < P.length && i >= P[k + 1].idx) k++; stepOf.push(k); }
+
+  /* --- porțiuni drepte: axa drumului = dreapta care trece cel mai aproape de panoramele porțiunii --- */
+  const axis = new Array(N).fill(null);
+  (TUR.drept || []).forEach(d => {
+    const a = idxById.get(d.de), b = idxById.get(d.pana);
+    if (a == null || b == null || b <= a) return;
+    const pts = S.slice(a, b + 1);
+    const mx = pts.reduce((t, s) => t + s.x, 0) / pts.length, my = pts.reduce((t, s) => t + s.y, 0) / pts.length;
+    let sxx = 0, syy = 0, sxy = 0;
+    pts.forEach(s => { const dx = s.x - mx, dy = s.y - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; });
+    const t = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    const along = Math.cos(t) * (S[b].x - S[a].x) + Math.sin(t) * (S[b].y - S[a].y);
+    const H = along < 0 ? wrap(deg(t) + 180) : deg(t);
+    for (let i = a; i <= b; i++) axis[i] = H;
+  });
+
+  /* --- hotspot-uri --- */
+  const chevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+  function makeArrow(div, args) {
+    div.innerHTML = (args.next ? '<span class="ring"></span>' : '') + '<span class="disc">' + chevron + '</span><span class="tip">' + args.tip + '</span>';
+    div.setAttribute('role', 'button');
+    div.setAttribute('aria-label', args.tip);
+  }
+  function makeLabel(div, text) {
+    div.innerHTML = '<span class="pin"></span><span class="txt"></span>';
+    div.querySelector('.txt').textContent = text;
+  }
+
+  const scenes = {};
+  S.forEach((s, i) => {
+    const hs = [];
+    if (i < N - 1) hs.push({ type: 'info', cssClass: 'hs-go hs-next', pitch: groundPitch(s, S[i + 1]), yaw: yawFor(s, heading(s, S[i + 1])),
+      createTooltipFunc: makeArrow, createTooltipArgs: { next: true, tip: 'Înainte' }, clickHandlerFunc: () => userGo(i + 1) });
+    if (i > 0) hs.push({ type: 'info', cssClass: 'hs-go hs-back', pitch: groundPitch(s, S[i - 1]), yaw: yawFor(s, heading(s, S[i - 1])),
+      createTooltipFunc: makeArrow, createTooltipArgs: { next: false, tip: 'Înapoi' }, clickHandlerFunc: () => userGo(i - 1) });
+    const p = P.find(p => p.idx === i);
+    if (p && p.eticheta) hs.push({ type: 'info', cssClass: 'hs-label', pitch: p.eticheta.pitch, yaw: yawFor(s, p.eticheta.H),
+      createTooltipFunc: makeLabel, createTooltipArgs: p.eticheta.text });
+    scenes[sceneKey(i)] = { type: 'equirectangular', panorama: 'panos/' + pad(s.id) + '.jpg',
+      pitch: -2, yaw: yawFor(s, travelH(i)), hfov: HFOV, hotSpots: hs };
+  });
+
+  const viewer = pannellum.viewer('pano', {
+    default: { firstScene: sceneKey(0), sceneFadeDuration: FADE, autoLoad: true, showControls: false, compass: false,
+      hfov: HFOV, minHfov: 35, maxHfov: 120, minPitch: -85, maxPitch: 85, friction: 0.15, crossOrigin: 'anonymous',
+      strings: { loadingLabel: 'Se încarcă…', bylineLabel: '' } },
+    scenes,
+  });
+
+  /* --- stare --- */
+  let cur = 0, busy = false, playing = false, started = false;
+  let move = null; // {from, to, t0, dur} pentru animația pe hartă
+
+  function waitLoad() {
+    return new Promise(res => {
+      const t = setTimeout(() => document.body.classList.add('loading'), 250);
+      const done = () => { clearTimeout(t); document.body.classList.remove('loading'); viewer.off('load', done); res(); };
+      viewer.on('load', done);
+    });
+  }
+  function look(pitch, yaw, hfov, ms) {
+    return new Promise(res => viewer.lookAt(pitch, yaw, hfov, reduce ? 0 : ms, res));
+  }
+  function prefetch(i) {
+    [i + 1, i + 2, i - 1].forEach(j => {
+      if (j < 0 || j >= N || prefetch.done.has(j)) return;
+      prefetch.done.add(j);
+      const im = new Image(); im.crossOrigin = 'anonymous'; im.src = 'panos/' + pad(S[j].id) + '.jpg';
+    });
+  }
+  prefetch.done = new Set([0]);
+
+  async function go(target, animate = true) {
+    if (busy || target < 0 || target >= N || target === cur || !viewer.isLoaded()) return false;
+    busy = true;
+    const from = S[cur], to = S[target];
+    const adjacent = Math.abs(target - cur) === 1;
+    const H = adjacent ? stepH(cur, target) : travelH(target);
+    if (animate && adjacent && !reduce) {
+      const yT = yawFor(from, H);
+      const dy = Math.abs(wrap(yT - viewer.getYaw()));
+      if (dy > 35) await look(-4, yT, viewer.getHfov(), Math.min(1300, 250 + dy * 6));
+      move = { from: cur, to: target, t0: performance.now(), dur: 520 + FADE };
+      await look(-4, yT, ZOOM_HFOV, 520);
+    } else {
+      move = { from: cur, to: target, t0: performance.now(), dur: FADE };
+    }
+    const loaded = waitLoad();
+    viewer.loadScene(sceneKey(target), -2, yawFor(to, H), HFOV);
+    cur = target;
+    updateUI();
+    await loaded;
+    prefetch(cur);
+    await sleep(FADE);
+    // la destinație, întoarce vederea spre locurile de parcare (în turul automat o face dwell())
+    const fin = P.find(p => p.idx === cur);
+    if (cur === N - 1 && fin && fin.eticheta && !playing) await look(fin.eticheta.pitch - 4, yawFor(S[cur], fin.eticheta.H), HFOV * 0.85, 1200);
+    busy = false;
+    return true;
+  }
+
+  async function userGo(i, animate = true) { pause(); await go(i, animate); }
+
+  /* --- redare automată --- */
+  async function play() {
+    if (playing) return;
+    if (cur === N - 1) { await go(0, false); }
+    playing = true; setPlayIcon();
+    hide($('arrived'));
+    while (playing && cur < N - 1) {
+      await dwell(cur);
+      if (!playing) break;
+      await go(cur + 1);
+    }
+    if (playing && cur === N - 1) { await dwell(cur); pause(); arrived(); }
+  }
+  function pause() { playing = false; setPlayIcon(); }
+  async function dwell(i) {
+    const p = P.find(p => p.idx === i);
+    if (p && p.eticheta && !reduce) {
+      await sleep(T(400)); if (!playing) return;
+      const s = S[i]; const keep = { yaw: viewer.getYaw(), pitch: viewer.getPitch() };
+      await look(p.eticheta.pitch - 4, yawFor(s, p.eticheta.H), HFOV * 0.8, 1100); if (!playing) return;
+      await sleep(T(1700)); if (!playing) return;
+      if (i < N - 1) await look(keep.pitch, keep.yaw, HFOV, 900);
+    } else {
+      await sleep(T(p ? 2200 : 350));
+    }
+  }
+  function setPlayIcon() {
+    $('icoPlay').style.display = playing ? 'none' : '';
+    $('icoPause').style.display = playing ? '' : 'none';
+    $('bPlay').setAttribute('aria-label', playing ? 'Pauză' : 'Pornește');
+  }
+
+  /* --- interfață --- */
+  const hide = el => el.classList.add('hidden');
+  const show = el => el.classList.remove('hidden');
+
+  function buildStatic() {
+    $('introLoc').textContent = TUR.loc;
+    $('introTitle').textContent = TUR.titlu;
+    $('introFine').textContent = 'Trageți cu mouse-ul sau cu degetul ca să vă uitați în jur. Apăsați săgețile albe ca să înaintați. Imagini 360° din ' + TUR.dataScanare + '.';
+    $('arrTitle').textContent = TUR.sosire.titlu;
+    $('arrText').textContent = TUR.sosire.text;
+    $('dots').innerHTML = P.map((p, k) => '<button aria-label="Pasul ' + (k + 1) + ': ' + p.titlu.replace(/"/g, '') + '"></button>').join('');
+    $('dots').querySelectorAll('button').forEach((b, k) => b.onclick = () => userGo(P[k].idx, false));
+    const track = $('track');
+    P.forEach((p, k) => { const t = document.createElement('span'); t.className = 'tick'; t.style.left = (100 * p.idx / (N - 1)) + '%'; t.title = (k + 1) + '. ' + p.titlu; track.appendChild(t); });
+    track.setAttribute('aria-valuemax', N);
+    buildMap();
+  }
+
+  function updateUI() {
+    const k = stepOf[cur], p = P[k];
+    $('stepNo').textContent = k + 1;
+    $('stepOf').textContent = 'Pasul ' + (k + 1) + ' din ' + P.length;
+    $('stepTitle').textContent = p.titlu;
+    $('stepText').textContent = p.text;
+    $('dots').querySelectorAll('button').forEach((b, j) => { b.classList.toggle('on', j === k); b.classList.toggle('done', j < k); });
+    $('track').querySelector('.fill').style.width = (100 * cur / (N - 1)) + '%';
+    $('track').querySelectorAll('.tick').forEach((t, j) => t.classList.toggle('done', P[j].idx <= cur));
+    $('track').setAttribute('aria-valuenow', cur + 1);
+    $('count').textContent = (cur + 1) + ' / ' + N;
+    $('bPrev').disabled = cur === 0;
+    $('bNext').disabled = cur === N - 1;
+    mapDone.setAttribute('points', S.slice(0, cur + 1).map(s => HARTA.px(s.x) + ',' + HARTA.py(s.y)).join(' '));
+  }
+
+  function arrived() { show($('arrived')); }
+
+  /* --- minihartă --- */
+  const NS = 'http://www.w3.org/2000/svg';
+  let mapDone, meG, meCone;
+  function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; }
+  function buildMap() {
+    const svg = $('mapSvg');
+    const xs = S.map(s => HARTA.px(s.x)), ys = S.map(s => HARTA.py(s.y));
+    const m = 70, x0 = Math.min(...xs) - m, x1 = Math.max(...xs) + m, y0 = Math.min(...ys) - m, y1 = Math.max(...ys) + m;
+    const side = Math.max(x1 - x0, y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    svg.setAttribute('viewBox', (cx - side / 2) + ' ' + (cy - side / 2) + ' ' + side + ' ' + side);
+    el('rect', { x: -2000, y: -2000, width: 6000, height: 6000, fill: '#05070a' }, svg);
+    el('image', { href: HARTA.url, x: 0, y: 0, width: HARTA.w, height: HARTA.h, opacity: .9 }, svg);
+    const pts = S.map(s => HARTA.px(s.x) + ',' + HARTA.py(s.y)).join(' ');
+    el('polyline', { points: pts, fill: 'none', stroke: '#fff', 'stroke-width': 16, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', opacity: .9 }, svg);
+    el('polyline', { points: pts, fill: 'none', stroke: '#7a1747', 'stroke-width': 9, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+    mapDone = el('polyline', { points: '', fill: 'none', stroke: '#e0368a', 'stroke-width': 9, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+    P.forEach((p, k) => {
+      const s = S[p.idx], g = el('g', { transform: 'translate(' + HARTA.px(s.x) + ',' + HARTA.py(s.y) + ')', style: 'cursor:pointer' }, svg);
+      el('circle', { r: 19, fill: '#fff' }, g);
+      el('circle', { r: 15, fill: '#c4176c' }, g);
+      const t = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: '#fff', 'font-size': 19, 'font-weight': 700, 'font-family': 'Segoe UI, system-ui, sans-serif' }, g);
+      t.textContent = k + 1;
+      g.addEventListener('click', e => { e.stopPropagation(); userGo(p.idx, false); });
+    });
+    meG = el('g', {}, svg);
+    meCone = el('path', { d: 'M0 0 L95 -48 A107 107 0 0 1 95 48 Z', fill: 'rgba(255,255,255,.28)', stroke: 'rgba(255,255,255,.6)', 'stroke-width': 2 }, meG);
+    el('circle', { r: 17, fill: '#fff' }, meG);
+    el('circle', { r: 11, fill: '#1a73e8' }, meG);
+    svg.addEventListener('click', e => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+      let best = 0, bd = Infinity;
+      S.forEach((s, i) => { const d = Math.hypot(HARTA.px(s.x) - q.x, HARTA.py(s.y) - q.y); if (d < bd) { bd = d; best = i; } });
+      userGo(best, false);
+    });
+  }
+  function tick() {
+    if (meG) {
+      let x, y;
+      if (move && performance.now() - move.t0 < move.dur) {
+        const t = (performance.now() - move.t0) / move.dur, e = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const a = S[move.from], b = S[move.to];
+        x = a.x + (b.x - a.x) * e; y = a.y + (b.y - a.y) * e;
+      } else { x = S[cur].x; y = S[cur].y; }
+      const sc = viewer.getScene ? idxById.get(+String(viewer.getScene()).slice(1)) : cur;
+      const H = S[sc ?? cur].psi - viewer.getYaw();
+      meG.setAttribute('transform', 'translate(' + HARTA.px(x) + ',' + HARTA.py(y) + ') rotate(' + (-H) + ')');
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* --- evenimente --- */
+  $('bPlay').onclick = () => playing ? pause() : play();
+  $('bNext').onclick = () => userGo(cur + 1);
+  $('bPrev').onclick = () => userGo(cur - 1);
+  $('bRestart').onclick = () => { hide($('arrived')); userGo(0, false); };
+  $('bFull').onclick = () => { const d = document; if (d.fullscreenElement) d.exitFullscreen(); else d.documentElement.requestFullscreen && d.documentElement.requestFullscreen().catch(() => {}); };
+  $('bMap').onclick = () => { $('map').classList.toggle('off'); $('bMap').classList.toggle('on', !$('map').classList.contains('off')); };
+  $('mapGrow').onclick = e => { e.stopPropagation(); $('map').classList.toggle('big'); };
+  $('track').addEventListener('click', e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    userGo(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (N - 1)), false);
+  });
+  $('track').addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); userGo(cur + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); userGo(cur - 1); }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && started && !e.target.closest('button')) { e.preventDefault(); playing ? pause() : play(); }
+  });
+  viewer.on('mousedown', () => pause());
+  viewer.on('touchstart', () => pause());
+  viewer.on('error', msg => { const b = $('err'); b.textContent = 'Panorama nu s-a putut încărca. Deschideți turul printr-un server web (nu direct ca fișier). Detalii: ' + msg; b.style.display = 'block'; });
+
+  function begin(auto) {
+    started = true;
+    hide($('intro')); show($('step'));
+    if (innerWidth > 640) { $('map').classList.remove('off'); $('bMap').classList.add('on'); }
+    updateUI();
+    if (auto) play();
+  }
+  $('bStart').onclick = () => begin(true);
+  $('bExplore').onclick = () => begin(false);
+  $('bAgain').onclick = async () => { hide($('arrived')); await go(0, false); play(); };
+  $('bClose').onclick = () => hide($('arrived'));
+
+  buildStatic();
+  updateUI();
+  viewer.on('load', function first() { viewer.off('load', first); prefetch(0); });
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
